@@ -1,0 +1,4 @@
+# 可选：抖音热榜采集依赖（浏览器自动化）
+# 安装后还需下载浏览器内核：
+#   python -m playwright install chromium
+playwright>=1.40.0

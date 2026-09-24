@@ -6,7 +6,7 @@
   <img alt="Streamlit" src="https://img.shields.io/badge/Streamlit-UI-FF4B4B?logo=streamlit&logoColor=white">
   <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white">
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-81%20passed-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-111%20passed-brightgreen">
 </p>
 
 输入 **热点词条** 与 **高赞评论 / 相关文本**，调用任意 OpenAI 兼容大模型，按四步逻辑输出
@@ -26,7 +26,8 @@
 | 💰 **成本可控** | 输入按信息密度截断、内置模型价目表、Token/耗时/成本全链路可观测 |
 | 🕵️ **采集解耦** | `HotspotSource` 协议 + 注册表，内置手动源与 Playwright 抖音源，可插拔扩展 |
 | 🎬 **爆款对标** | 按「最多点赞」抓取 Top1~Top3 头部爆款，附封面 / 作者 / 点赞高亮 |
-| 📥 **一键导出** | Markdown 报告 / JSON 源码 / **短视频拍摄脚本（.md）** 三类产物直接落盘 |
+| 📥 **一键导出** | Markdown 报告 / JSON 源码 / **短视频拍摄脚本（.md）** / **CSV 分镜表** 直接落盘 |
+| 📊 **可视化图表** | Streamlit 内置 Plotly **五维综合战力雷达图** + **评论区主题情绪热力图** |
 | 🖥️ **三种入口** | Typer CLI、FastAPI、Streamlit 可视化工作台，共用同一套核心逻辑 |
 
 ---
@@ -254,6 +255,7 @@ streamlit run app.py
 | 🛡️ 品牌合规与风控 | 「核心洞察」顶部卡片按风险等级**绿 / 黄 / 红**高亮：命中敏感词 / 极限词清单 + 合规替换建议，High/Ban 额外弹出整改警示 |
 | ⚠️ 舆情雷区与避坑预警 | 「核心洞察」两栏卡片：左栏红色高亮**评论区 TOP3 核心争议 / 负面声音**，右栏琥珀色高亮**拍摄避坑雷区（禁止触碰）** |
 | 💡 差异化切入视角 | 「核心洞察」两栏对比卡片：🟥**同质化常规角度（红海）** vs 🟦**蓝海 / 反常识切入提案**，每个角度单独成卡 |
+| 📊 可视化图表 | 「核心洞察」两栏并排 **Plotly** 图表：🎯 **五维综合战力雷达图**（情绪强度 / 争议指数 / 二次创作潜力 / 合规安全性 / 商业变现度）与 🔥 **评论区主题情绪热力图**（主题 × 高赞 / 争议 / 吐槽，暗色系高亮色阶） |
 | 🧪 A/B 测试 Hook 矩阵 | 「拍摄分镜剧本」顶部用 `st.columns(3)` 并排展示 3 套风格 Hook 卡片（冲突 / 悬念 / 共鸣）+ 主打人群，附 `st.code` 终端图标**一键复制**话术 |
 |  一键导出 | Markdown 报告 / JSON 源码 / **短视频拍摄脚本** / **CSV 分镜表** 四个下载按钮 |
 | 🛠️ 指标明细 | 端到端耗时 / API 延迟 / Token / 成本下沉到折叠面板，不干扰主视觉 |
@@ -291,6 +293,25 @@ streamlit run app.py
     列为 `角度 / 镜号 / 景别 / 台词 / 音效 / 互动点`（UTF-8），景别与音效由
     [`_shot_size()`](app.py) / [`_shot_sfx()`](app.py) 依分镜内容智能推断，
     互动引导点自动挂在每个角度的**最后一镜**。
+
+### 📊 核心洞察可视化图表（Plotly）
+
+「💡 核心洞察」Tab 在风控卡 / 舆情雷区之后、正文报告之前，用 `st.columns(2)` 并排渲染两张
+**轻量级交互图表**（由 [`render_insight_charts()`](app.py) 统一编排；未安装 `plotly` 时优雅降级隐藏）：
+
+- **🎯 五维综合战力雷达图**（[`render_power_radar()`](app.py)）：用 `plotly.graph_objects.Scatterpolar`
+  绘制闭合雷达图，五维得分由 [`_radar_dimensions()`](app.py) 统一折算 ——
+  **情绪强度** / **争议指数** 取自模型，**二次创作潜力** 由「极高 / 高 / 中 / 低」文本
+  映射为分值，**合规安全性** 随风控等级（Low 95 / Medium 70 / High 35 / Ban 10）
+  并按命中敏感词数量扣分，**商业变现度** 依据切入点是否给出变现路径与互动引导折算；
+- **🔥 评论区主题情绪热力图**（[`render_comment_heatmap()`](app.py)）：用 `plotly.graph_objects.Heatmap`
+  渲染「评论主题 × 高赞 / 争议 / 吐槽」的热度密度矩阵，行取痛点（缺失时回退争议声音 / 切入角度），
+  采用**暗色系 → 高亮**色阶（深海蓝 → 靛蓝 → 紫 → 橙 → 亮黄），格内数值 0-100，
+  由 [`_heatmap_matrix()`](app.py) 结合情绪强度 / 争议指数 / 合规安全性信号并叠加**稳定伪随机**扰动生成
+  （同报告两次渲染结果一致，保证可复现）。
+
+> 图表依赖：`plotly>=5.18.0`（已在 [`requirements.txt`](requirements.txt:19) 与
+> [`requirements-ui.txt`](requirements-ui.txt:6) 中声明）。
 
 导出文档由 [`_build_storyboard_markdown()`](app.py) 生成，结构为：
 
@@ -485,6 +506,9 @@ Markdown 报告的「运行信息」区块会同步展示：模式（真实 / Mo
   [`_build_storyboard_markdown()`](app.py) / [`_build_storyboard_csv()`](app.py) /
   `_storyboard_download()` 一键导出 Markdown 脚本与
   `{keyword}_分镜表.csv`（镜号 / 景别 / 台词 / 音效 / 互动点），可直接交付拍摄或导入飞书多维表格。
+- **可视化图表（Plotly）**：[`render_power_radar()`](app.py) 以 `Scatterpolar` 输出五维战力雷达图，
+  [`render_comment_heatmap()`](app.py) 以 `Heatmap` 输出评论区主题情绪热力图，
+  由 [`render_insight_charts()`](app.py) 并排编排；`plotly` 缺失时自动降级，不影响其余功能。
 - **冒烟测试**：[`tests/test_app_import.py`](tests/test_app_import.py:1) 校验模块可导入、
   `main` 可调用、预设完整、分镜表格与脚本导出正确；未安装 Streamlit 时自动跳过。
 
@@ -498,7 +522,7 @@ pytest -q
 
 测试完全离线（mock 数据 + 渲染 + JSON 提取 + 提示词组装 + 采集层解析），无需 API Key 与浏览器。
 
-当前状态：**103 passed / 2 skipped**（跳过项为需要浏览器 / 可选依赖的用例）。
+当前状态：**111 passed / 2 skipped**（跳过项为需要浏览器 / 可选依赖的用例）。
 
 ---
 

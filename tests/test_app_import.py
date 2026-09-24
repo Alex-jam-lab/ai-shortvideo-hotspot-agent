@@ -639,3 +639,176 @@ def test_ui_removes_pip_hint_and_has_demo_buttons(app_test):
     demo_labels = [x for x in button_labels if x.startswith(("🔁", "🧊", "💼"))]
     assert len(demo_labels) >= 3, f"应提供 3 个 Demo 按钮，实际：{button_labels}"
     assert any("秒级体验" in str(m.value) for m in app_test.markdown)
+
+
+# --------------------------------------------------------------------------- #
+# 轻量级可视化图表：五维综合战力雷达图 + 评论区主题情绪热力图
+# --------------------------------------------------------------------------- #
+def _chart_report(app_module):
+    """构造一份维度信号齐全的报告，供图表测试复用。"""
+    from hotspot_analysis.models import (
+        ActionableInsight,
+        AnalysisMeta,
+        EmotionDecoding,
+        NoiseFiltering,
+        NoiseType,
+        RiskControl,
+        TrendReport,
+        ViralMechanism,
+    )
+
+    return TrendReport(
+        meta=AnalysisMeta(keyword="反向消费"),
+        noise_filtering=NoiseFiltering(
+            is_valuable_trend=True,
+            noise_type=NoiseType.VALUABLE,
+            noise_reason="可复制",
+            value_score=82,
+        ),
+        emotion_decoding=EmotionDecoding(
+            pain_points=["经济压力", "被消费主义裹挟"],
+            core_emotions=["共鸣", "焦虑"],
+            emotion_intensity=78,
+            top_controversies=["这不就是穷吗？"],
+        ),
+        viral_mechanism=ViralMechanism(
+            triggers=["高共鸣"],
+            controversy_level=65,
+            secondary_creation_potential="高",
+        ),
+        actionable_insights=[
+            ActionableInsight(
+                angle_title="反向消费避坑清单",
+                monetization="挂车低价好物",
+                engagement_trigger="你怎么看？",
+            )
+        ],
+        risk_control=RiskControl(risk_level="Medium", sensitive_words_found=["最"]),
+        conclusion="跟进。",
+    )
+
+
+def test_charts_expose_public_entrypoints(app_module):
+    """模块应暴露图表渲染入口（雷达图 / 热力图 / 组合渲染）。"""
+    for name in ("render_power_radar", "render_comment_heatmap", "render_insight_charts"):
+        assert callable(getattr(app_module, name, None)), f"缺少 {name}"
+
+
+def test_radar_dimensions_five_dimensions_in_range(app_module):
+    """雷达图应输出指定的 5 个维度，得分均在 0-100 区间内。"""
+    report = _chart_report(app_module)
+    dims, values = app_module._radar_dimensions(report)
+
+    assert dims == ["情绪强度", "争议指数", "二次创作潜力", "合规安全性", "商业变现度"]
+    assert values[0] == 78.0
+    assert values[1] == 65.0
+    # 风控 Medium(=70) 命中 1 个敏感词 → 扣 4 分
+    assert values[3] == 66.0
+    assert all(0.0 <= v <= 100.0 for v in values)
+
+
+def test_radar_safety_tracks_risk_level(app_module):
+    """合规安全性应随风险等级下降（Low > High > Ban）。"""
+    from hotspot_analysis.models import RiskControl
+
+    report = _chart_report(app_module)
+    safety = {}
+    for level in ("Low", "High", "Ban"):
+        report.risk_control = RiskControl(risk_level=level, sensitive_words_found=[])
+        safety[level] = app_module._radar_dimensions(report)[1][3]
+
+    assert safety["Low"] > safety["High"] > safety["Ban"]
+
+
+def test_heatmap_matrix_shape_and_scale(app_module):
+    """热力矩阵应为「主题 × 高赞/争议/吐槽」，且每格落在 0-100。"""
+    report = _chart_report(app_module)
+    topics, cols, matrix = app_module._heatmap_matrix(report)
+
+    assert cols == ["高赞", "争议", "吐槽"]
+    assert topics, "应至少有一个评论主题"
+    assert len(matrix) == len(topics)
+    assert all(len(row) == 3 for row in matrix)
+    assert all(0.0 <= v <= 100.0 for row in matrix for v in row)
+
+
+def test_heatmap_matrix_is_deterministic(app_module):
+    """同一报告两次构造应得到完全一致的矩阵（图表可复现）。"""
+    report = _chart_report(app_module)
+    assert app_module._heatmap_matrix(report) == app_module._heatmap_matrix(report)
+
+
+def test_render_insight_charts_renders_two_columns(app_module, monkeypatch):
+    """组合渲染应以两栏并排调用两张图表的渲染函数。"""
+    report = _chart_report(app_module)
+
+    calls: list[str] = []
+    monkeypatch.setattr(app_module, "render_power_radar", lambda r: calls.append("radar"))
+    monkeypatch.setattr(app_module, "render_comment_heatmap", lambda r: calls.append("heat"))
+
+    cols: list[object] = []
+
+    class _Col:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _columns(n):
+        result = [_Col() for _ in range(n if isinstance(n, int) else len(n))]
+        cols.extend(result)
+        return result
+
+    monkeypatch.setattr(app_module.st, "columns", _columns)
+
+    if app_module.go is None:
+        pytest.skip("未安装 plotly")
+
+    app_module.render_insight_charts(report)
+    assert len(cols) == 2
+    assert calls == ["radar", "heat"]
+
+
+def test_render_power_radar_emits_plotly_chart(app_module, monkeypatch):
+    """雷达图应调用 st.plotly_chart 并带五维标题。"""
+    if app_module.go is None:
+        pytest.skip("未安装 plotly")
+
+    report = _chart_report(app_module)
+    charts: list[object] = []
+    markdown_calls: list[str] = []
+
+    monkeypatch.setattr(app_module.st, "plotly_chart", lambda fig, **k: charts.append(fig))
+    monkeypatch.setattr(app_module.st, "markdown", lambda *a, **k: markdown_calls.append(str(a[0]) if a else ""))
+    monkeypatch.setattr(app_module.st, "caption", lambda *a, **k: None)
+
+    app_module.render_power_radar(report)
+
+    assert len(charts) == 1
+    assert any("五维综合战力雷达图" in m for m in markdown_calls)
+    # 雷达图应闭合（首尾维度一致）
+    trace = charts[0].data[0]
+    assert trace.theta[0] == trace.theta[-1]
+    assert len(trace.r) == 6
+
+
+def test_render_comment_heatmap_emits_plotly_chart(app_module, monkeypatch):
+    """热力图应调用 st.plotly_chart 并带热力图标题。"""
+    if app_module.go is None:
+        pytest.skip("未安装 plotly")
+
+    report = _chart_report(app_module)
+    charts: list[object] = []
+    markdown_calls: list[str] = []
+
+    monkeypatch.setattr(app_module.st, "plotly_chart", lambda fig, **k: charts.append(fig))
+    monkeypatch.setattr(app_module.st, "markdown", lambda *a, **k: markdown_calls.append(str(a[0]) if a else ""))
+    monkeypatch.setattr(app_module.st, "caption", lambda *a, **k: None)
+
+    app_module.render_comment_heatmap(report)
+
+    assert len(charts) == 1
+    assert any("评论区主题情绪热力图" in m for m in markdown_calls)
+    trace = charts[0].data[0]
+    assert list(trace.x) == ["高赞", "争议", "吐槽"]

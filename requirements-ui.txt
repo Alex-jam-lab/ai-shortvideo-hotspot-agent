@@ -1,3 +1,6 @@
 # 可选：Streamlit 图形界面依赖
 # 安装后启动：streamlit run app.py
 streamlit>=1.30.0
+
+# 可视化图表：五维综合战力雷达图 + 评论区主题情绪热力图
+plotly>=5.18.0

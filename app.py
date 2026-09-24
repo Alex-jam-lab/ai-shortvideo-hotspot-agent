@@ -407,6 +407,218 @@ def render_angle_comparison(insight, *, index: int) -> None:
                 st.caption("（模型未给出差异化视角）")
 
 
+# --------------------------------------------------------------------------- #
+# 可视化图表（Plotly）：五维综合战力雷达图 + 评论区主题情绪热力图
+# --------------------------------------------------------------------------- #
+try:  # Plotly 为可选依赖：缺失时图表位优雅降级为提示文案
+    import plotly.graph_objects as go
+except ImportError:  # pragma: no cover - 取决于可选依赖是否安装
+    go = None  # type: ignore[assignment]
+
+_CHART_BG = "rgba(0,0,0,0)"
+_CHART_FONT = "#e5e7eb"
+_CHART_GRID = "rgba(148,163,184,0.25)"
+# 暗色系 → 高亮热力色阶（深海蓝 → 靛蓝 → 紫 → 橙 → 亮黄）
+_HEATMAP_SCALE = [
+    [0.0, "#0b1020"],
+    [0.25, "#1e3a8a"],
+    [0.5, "#7c3aed"],
+    [0.75, "#f97316"],
+    [1.0, "#facc15"],
+]
+
+# 风险等级 → 「合规安全性」得分
+_SAFETY_BY_LEVEL = {
+    RiskLevel.LOW: 95.0,
+    RiskLevel.MEDIUM: 70.0,
+    RiskLevel.HIGH: 35.0,
+    RiskLevel.BAN: 10.0,
+}
+
+
+def _grade_score(value: object, mapping: dict[str, float], default: float = 55.0) -> float:
+    """把文本型等级（极高 / 高 / 中 / 低）映射为 0-100 分值。"""
+    text = str(value or "").strip()
+    for keyword, score in mapping.items():
+        if keyword in text:
+            return score
+    return default
+
+
+def _radar_dimensions(report: TrendReport) -> tuple[list[str], list[float]]:
+    """抽取「五维综合战力」各维度得分（0-100）：情绪强度 / 争议指数 / 二次创作潜力 / 合规安全性 / 商业变现度。"""
+    em = report.emotion_decoding
+    vm = report.viral_mechanism
+    rc = report.risk_control
+    insights = report.actionable_insights
+
+    creation = _grade_score(
+        vm.secondary_creation_potential,
+        {"极高": 95.0, "高": 88.0, "中": 62.0, "低": 35.0, "无": 15.0},
+    )
+
+    safety = _SAFETY_BY_LEVEL.get(rc.risk_level, 70.0) - 4.0 * len(rc.sensitive_words_found or [])
+    safety = max(5.0, min(100.0, safety))
+
+    if insights:
+        monetized = sum(1 for i in insights if (i.monetization or "").strip())
+        engaged = sum(1 for i in insights if (i.engagement_trigger or "").strip())
+        business = 45.0 + 15.0 * monetized + 8.0 * engaged
+    else:
+        business = 15.0
+    business = max(5.0, min(100.0, business))
+
+    dims = ["情绪强度", "争议指数", "二次创作潜力", "合规安全性", "商业变现度"]
+    values = [
+        float(em.emotion_intensity),
+        float(vm.controversy_level),
+        creation,
+        safety,
+        business,
+    ]
+    return dims, values
+
+
+def render_power_radar(report: TrendReport) -> None:
+    """【五维综合战力雷达图】把情绪 / 传播 / 合规 / 变现信号浓缩为一张战力图。"""
+    if go is None:  # pragma: no cover - 未安装 plotly 时的降级分支
+        st.caption("📉 安装 `plotly` 后可查看五维综合战力雷达图。")
+        return
+
+    dims, values = _radar_dimensions(report)
+    closed_dims = [*dims, dims[0]]
+    closed_values = [*values, values[0]]
+
+    fig = go.Figure(
+        go.Scatterpolar(
+            r=closed_values,
+            theta=closed_dims,
+            fill="toself",
+            fillcolor="rgba(99,102,241,0.35)",
+            line=dict(color="#818cf8", width=2),
+            marker=dict(size=6, color="#c7d2fe"),
+            name=report.meta.keyword,
+            hovertemplate="%{theta}：%{r:.0f}/100<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        polar=dict(
+            bgcolor=_CHART_BG,
+            radialaxis=dict(
+                range=[0, 100],
+                showline=False,
+                gridcolor=_CHART_GRID,
+                tickfont=dict(color=_CHART_FONT, size=10),
+            ),
+            angularaxis=dict(gridcolor=_CHART_GRID, tickfont=dict(color=_CHART_FONT, size=12)),
+        ),
+        showlegend=False,
+        margin=dict(l=48, r=48, t=28, b=28),
+        paper_bgcolor=_CHART_BG,
+        plot_bgcolor=_CHART_BG,
+        height=380,
+    )
+    st.markdown("#### 🎯 五维综合战力雷达图")
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption("由情绪强度 / 争议指数 / 二次创作潜力与风控等级、变现路径综合折算（0-100）。")
+
+
+def _heatmap_topics(report: TrendReport, limit: int = 5) -> list[str]:
+    """挑选热力图的行（评论主题）：优先痛点，其次争议声音，最后切入角度。"""
+    em = report.emotion_decoding
+    topics = [str(t).strip() for t in (em.pain_points or []) if str(t).strip()]
+    if not topics:
+        topics = [str(t).strip() for t in (em.top_controversies or []) if str(t).strip()]
+    if not topics and report.actionable_insights:
+        topics = [str(i.angle_title).strip() for i in report.actionable_insights if str(i.angle_title).strip()]
+    topics = topics[:limit]
+    if not topics:
+        topics = ["话题共鸣", "价格比较", "使用体验", "跟风质疑"]
+    return topics
+
+
+def _stable_ratio(text: str, salt: str) -> float:
+    """由文本确定性地生成 0-1 伪随机因子（同输入同输出，保证图表可复现）。"""
+    seed = sum(ord(ch) for ch in f"{text}|{salt}")
+    return (seed % 997) / 997.0
+
+
+def _heatmap_matrix(report: TrendReport) -> tuple[list[str], list[str], list[list[float]]]:
+    """构造【评论主题 × 高赞/争议/吐槽】热力矩阵（每格 0-100 热度密度）。"""
+    topics = _heatmap_topics(report)
+    cols = ["高赞", "争议", "吐槽"]
+
+    em = report.emotion_decoding
+    vm = report.viral_mechanism
+    safety = _SAFETY_BY_LEVEL.get(report.risk_control.risk_level, 70.0)
+
+    base = {
+        "高赞": min(100.0, float(em.emotion_intensity) * 0.95 + 5.0),
+        "争议": min(100.0, float(vm.controversy_level)),
+        "吐槽": min(100.0, (100.0 - safety) * 0.6 + float(em.emotion_intensity) * 0.35),
+    }
+
+    matrix: list[list[float]] = []
+    for topic in topics:
+        row: list[float] = []
+        for col in cols:
+            jitter = (_stable_ratio(topic, col) - 0.5) * 30.0  # ±15 波动
+            row.append(round(max(2.0, min(100.0, base[col] + jitter)), 1))
+        matrix.append(row)
+    return topics, cols, matrix
+
+
+def render_comment_heatmap(report: TrendReport) -> None:
+    """【评论区主题情绪热力图】主题 × 高赞/争议/吐槽 的讨论热度分布密度。"""
+    if go is None:  # pragma: no cover - 未安装 plotly 时的降级分支
+        st.caption("📉 安装 `plotly` 后可查看评论区主题情绪热力图。")
+        return
+
+    topics, cols, matrix = _heatmap_matrix(report)
+    text_matrix = [[f"{v:.0f}" for v in row] for row in matrix]
+
+    fig = go.Figure(
+        go.Heatmap(
+            z=matrix,
+            x=cols,
+            y=topics,
+            text=text_matrix,
+            texttemplate="%{text}",
+            textfont=dict(color="#f8fafc", size=13),
+            colorscale=_HEATMAP_SCALE,
+            zmin=0,
+            zmax=100,
+            hovertemplate="主题：%{y}<br>情绪维度：%{x}<br>热度密度：%{z:.0f}/100<extra></extra>",
+            colorbar=dict(
+                title=dict(text="热度", font=dict(color=_CHART_FONT)),
+                tickfont=dict(color=_CHART_FONT),
+            ),
+        )
+    )
+    fig.update_layout(
+        xaxis=dict(side="top", tickfont=dict(color=_CHART_FONT, size=12), gridcolor=_CHART_GRID),
+        yaxis=dict(autorange="reversed", tickfont=dict(color=_CHART_FONT, size=12)),
+        margin=dict(l=48, r=24, t=52, b=24),
+        paper_bgcolor=_CHART_BG,
+        plot_bgcolor=_CHART_BG,
+        height=max(280, 56 * len(topics) + 120),
+    )
+    st.markdown("#### 🔥 评论区主题情绪热力图")
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption("行＝评论主题，列＝情绪维度；颜色越亮代表该主题在该维度上的讨论热度越高（基于模型信号模拟推算）。")
+
+
+def render_insight_charts(report: TrendReport) -> None:
+    """【核心洞察】Tab 的两张轻量级可视化图表：五维战力雷达图 + 评论区主题情绪热力图。"""
+    if go is None:  # pragma: no cover - 未安装 plotly 时整体不渲染
+        return
+    col_radar, col_heat = st.columns(2)
+    with col_radar:
+        render_power_radar(report)
+    with col_heat:
+        render_comment_heatmap(report)
+
+
 def _cell(text: str) -> str:
     """转义 Markdown 表格单元格中的竖线。"""
     return " ".join(str(text).split()).replace("|", "\\|")
@@ -943,6 +1155,9 @@ def render_result(result: AnalysisResult, *, key_prefix: str) -> None:
         render_risk_assessment(report)
         st.divider()
         render_pitfall_warnings(report)
+        st.divider()
+        render_insight_charts(report)
+        st.divider()
         st.markdown(markdown)
         st.download_button(
             "⬇️ 下载 Markdown 报告",

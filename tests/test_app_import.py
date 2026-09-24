@@ -172,13 +172,15 @@ def test_cover_placeholder_html(app_module):
 
 
 def test_build_storyboard_markdown_contains_hook_and_tables(app_module):
-    """导出脚本文档应含决策建议、黄金 3 秒 Hook 与分镜 / 步骤表格。"""
+    """导出脚本文档应含决策建议、A/B Hook 矩阵、风控与分镜 / 步骤表格。"""
     from hotspot_analysis.models import (
         ActionableInsight,
         AnalysisMeta,
         EmotionDecoding,
+        HookOption,
         NoiseFiltering,
         NoiseType,
+        RiskControl,
         TrendReport,
         ViralMechanism,
     )
@@ -197,13 +199,23 @@ def test_build_storyboard_markdown_contains_hook_and_tables(app_module):
             ActionableInsight(
                 angle_title="反向消费实测",
                 target_audience="价格敏感年轻人",
-                hook="同样是咖啡，我花了 1/3 的钱",
+                golden_hooks=[
+                    HookOption(style="冲突对立型", script="同样是咖啡，我花了 1/3 的钱", target_persona="价格敏感党"),
+                    HookOption(style="悬念好奇型", script="这 5 样东西，贵的一定更好吗？", target_persona="理性消费者"),
+                    HookOption(style="情绪共鸣型", script="不是买不起，是不想再当冤种", target_persona="被消费主义裹挟者"),
+                ],
+                engagement_trigger="评论区扣「1」看完整避坑清单",
                 content_outline=["钩子：亮出价格差", "展示平替实测"],
                 execution_steps=["选品", "拍对比"],
                 monetization="挂车带货",
                 risk_notes="避免夸大功效",
             )
         ],
+        risk_control=RiskControl(
+            risk_level="Medium",
+            sensitive_words_found=["最", "第一"],
+            compliance_suggestions="将「最便宜」改为「更划算」。",
+        ),
         conclusion="值得跟进，快节奏实测切入。",
     )
 
@@ -211,8 +223,20 @@ def test_build_storyboard_markdown_contains_hook_and_tables(app_module):
     assert "# 🎬 短视频拍摄脚本：年轻人开始流行反向消费" in text
     assert "## 🎯 决策建议" in text
     assert "值得跟进，快节奏实测切入。" in text
-    assert "🪝 黄金 3 秒 Hook" in text
-    assert "同样是咖啡，我花了 1/3 的钱" in text
+    # A/B 测试 Hook 矩阵（3 套风格）
+    assert "🧪 A/B 测试 Hook 矩阵（3 套风格）" in text
+    assert "| 风格 | 钩子话术 | 主打人群 |" in text
+    assert "| 冲突对立型 | 同样是咖啡，我花了 1/3 的钱 | 价格敏感党 |" in text
+    assert "悬念好奇型" in text and "情绪共鸣型" in text
+    # 评论区互动引导点
+    assert "💬 评论区互动引导点" in text
+    assert "> 评论区扣「1」看完整避坑清单" in text
+    # 品牌合规与风控评估
+    assert "## 🛡️ 品牌合规与风控评估" in text
+    assert "**风险等级**：Medium" in text
+    assert "最、第一" in text
+    assert "将「最便宜」改为「更划算」。" in text
+    # 分镜 / 步骤表格
     assert "| 序号 | 画面 / 步骤 | 核心台词 / Hook |" in text
     assert "| 1 | 钩子 | 亮出价格差 |" in text
     assert "| 1 | 选品 |" in text
@@ -248,6 +272,84 @@ def test_build_storyboard_markdown_without_insights(app_module):
     assert "## 🎯 决策建议" in text
     assert "（模型未给出决策建议）" in text
     assert "（本次报告未产出可执行切入点，可能为噪声话题）" in text
+
+
+def test_ui_has_risk_card_and_hook_matrix(app_module, monkeypatch):
+    """核心洞察应渲染风控色卡；分镜页应以 st.columns 并排 3 套 A/B Hook。"""
+    from hotspot_analysis.models import (
+        ActionableInsight,
+        AnalysisMeta,
+        EmotionDecoding,
+        HookOption,
+        NoiseFiltering,
+        NoiseType,
+        RiskControl,
+        TrendReport,
+        ViralMechanism,
+    )
+
+    report = TrendReport(
+        meta=AnalysisMeta(keyword="反向消费"),
+        noise_filtering=NoiseFiltering(
+            is_valuable_trend=True,
+            noise_type=NoiseType.VALUABLE,
+            noise_reason="可复制",
+            value_score=80,
+        ),
+        emotion_decoding=EmotionDecoding(),
+        viral_mechanism=ViralMechanism(),
+        actionable_insights=[
+            ActionableInsight(
+                angle_title="角度",
+                golden_hooks=[
+                    HookOption(style="冲突对立型", script="话术A"),
+                    HookOption(style="悬念好奇型", script="话术B"),
+                    HookOption(style="情绪共鸣型", script="话术C"),
+                ],
+                engagement_trigger="你站哪一派？",
+            )
+        ],
+        risk_control=RiskControl(risk_level="High", sensitive_words_found=["最"], compliance_suggestions="改写"),
+        conclusion="结论",
+    )
+
+    markdown_calls: list[str] = []
+    monkeypatch.setattr(app_module.st, "markdown", lambda *a, **k: markdown_calls.append(a[0] if a else ""))
+    monkeypatch.setattr(app_module.st, "caption", lambda *a, **k: None)
+    monkeypatch.setattr(app_module.st, "info", lambda *a, **k: None)
+    monkeypatch.setattr(app_module.st, "code", lambda *a, **k: None)
+    monkeypatch.setattr(app_module.st, "error", lambda *a, **k: None)
+
+    container_ctx = __import__("contextlib").nullcontext()
+    monkeypatch.setattr(app_module.st, "container", lambda *a, **k: container_ctx)
+
+    cols: list[object] = []
+
+    class _Col:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _columns(n):
+        result = [_Col() for _ in range(n if isinstance(n, int) else len(n))]
+        cols.extend(result)
+        return result
+
+    monkeypatch.setattr(app_module.st, "columns", _columns)
+
+    # 1) 风控色卡：High → 红色 (#dc2626) 且输出「高风险」
+    app_module.render_risk_assessment(report)
+    html = " ".join(str(x) for x in markdown_calls if x)
+    assert "🛡️ 品牌合规与风控评估" in html
+    assert "#dc2626" in html
+    assert "高风险" in html
+
+    # 2) Hook 矩阵：渲染 3 套（st.columns(3)）
+    cols.clear()
+    app_module.render_hook_matrix(report.actionable_insights[0], key_prefix="t", index=1)
+    assert len(cols) == 3, f"应并排渲染 3 套 Hook，实际 {len(cols)}"
 
 
 def test_storyboard_download_button_filename(app_module, monkeypatch):

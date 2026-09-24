@@ -10,9 +10,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 STEP_STATUS_SKIPPED = "skipped"
 
@@ -43,6 +43,65 @@ class NoiseFiltering(BaseModel):
         if v is None:
             return False
         return bool(v)
+
+
+class RiskLevel(str, Enum):
+    """品牌合规风险等级。"""
+
+    LOW = "Low"
+    MEDIUM = "Medium"
+    HIGH = "High"
+    BAN = "Ban"
+
+
+_RISK_ALIASES = {
+    "low": RiskLevel.LOW,
+    "低": RiskLevel.LOW,
+    "低风险": RiskLevel.LOW,
+    "安全": RiskLevel.LOW,
+    "medium": RiskLevel.MEDIUM,
+    "中": RiskLevel.MEDIUM,
+    "中风险": RiskLevel.MEDIUM,
+    "警告": RiskLevel.MEDIUM,
+    "high": RiskLevel.HIGH,
+    "高": RiskLevel.HIGH,
+    "高风险": RiskLevel.HIGH,
+    "ban": RiskLevel.BAN,
+    "封禁": RiskLevel.BAN,
+    "违禁": RiskLevel.BAN,
+    "禁止": RiskLevel.BAN,
+}
+
+
+class RiskControl(BaseModel):
+    """品牌合规与广告法风控评估（Step 0：发布前风险体检）。"""
+
+    risk_level: RiskLevel = Field(
+        default=RiskLevel.LOW, description="风险等级：Low / Medium / High / Ban"
+    )
+    sensitive_words_found: list[str] = Field(
+        default_factory=list, description="命中的广告法敏感词 / 极限词 / 违禁表述"
+    )
+    compliance_suggestions: str = Field(
+        default="", description="合规替换与规避建议（可直接替换的话术）"
+    )
+
+    @field_validator("risk_level", mode="before")
+    @classmethod
+    def _normalize_level(cls, v: Any) -> Any:  # noqa: ANN401
+        if isinstance(v, str):
+            key = v.strip().lower()
+            if key in _RISK_ALIASES:
+                return _RISK_ALIASES[key]
+            for alias, level in _RISK_ALIASES.items():
+                if alias in key:
+                    return level
+        return v
+
+    @property
+    def is_blocking(self) -> bool:
+        """高风险 / 封禁级别需要发布前先整改。"""
+        return self.risk_level in {RiskLevel.HIGH, RiskLevel.BAN}
 
 
 class EmotionDecoding(BaseModel):
@@ -76,20 +135,67 @@ class ViralMechanism(BaseModel):
     summary: str = Field(default="", description="传播机制一句话总结")
 
 
+class HookOption(BaseModel):
+    """一套黄金 3 秒 Hook 方案（用于 A/B 测试矩阵）。"""
+
+    style: str = Field(
+        ..., description="Hook 风格：冲突对立型 / 悬念好奇型 / 情绪共鸣型"
+    )
+    script: str = Field(..., description="可直接念出的前 3 秒钩子话术")
+    target_persona: str = Field(default="", description="这套 Hook 主打的人群画像")
+
+
 class ActionableInsight(BaseModel):
     """Step 4：可执行切入点。"""
 
     angle_title: str = Field(..., description="切入角度标题")
     target_audience: str = Field(default="", description="目标人群")
-    hook: str = Field(default="", description="前 3 秒钩子话术")
+    golden_hooks: list[HookOption] = Field(
+        default_factory=list,
+        description="3 套不同风格的黄金 3 秒 Hook（冲突 / 悬念 / 共鸣），供 A/B 测试",
+    )
     content_outline: list[str] = Field(
         default_factory=list, description="内容分镜提纲"
     )
     execution_steps: list[str] = Field(
         default_factory=list, description="可执行步骤"
     )
+    engagement_trigger: str = Field(
+        default="",
+        description="评论区互动引导点（结尾提问 / 置顶评论 / 二选一站队）",
+    )
     monetization: str = Field(default="", description="变现 / 引流路径")
     risk_notes: str = Field(default="", description="合规与蹭热点风险提示")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_hook(cls, data: Any) -> Any:  # noqa: ANN401
+        """兼容旧字段 hook（单句 str）：自动包装为单套 golden_hooks。"""
+        if isinstance(data, dict):
+            legacy = data.get("hook")
+            has_hooks = bool(data.get("golden_hooks"))
+            if legacy and not has_hooks:
+                data = dict(data)
+                data["golden_hooks"] = [
+                    {
+                        "style": "情绪共鸣型",
+                        "script": str(legacy),
+                        "target_persona": str(data.get("target_audience", "") or ""),
+                    }
+                ]
+        return data
+
+    @property
+    def hook(self) -> str:
+        """首套 Hook 话术（向后兼容旧字段 hook 的读取）。"""
+        return self.golden_hooks[0].script if self.golden_hooks else ""
+
+    def hook_by_style(self, style_keyword: str) -> str:
+        """按风格关键字（如「冲突」「悬念」「共鸣」）取对应 Hook 话术。"""
+        for opt in self.golden_hooks:
+            if style_keyword in opt.style:
+                return opt.script
+        return ""
 
 
 class AnalysisMeta(BaseModel):
@@ -113,13 +219,16 @@ class AnalysisMeta(BaseModel):
 
 
 class TrendReport(BaseModel):
-    """完整分析报告（四步 + 元信息）。"""
+    """完整分析报告（四步 + 风控 + 元信息）。"""
 
     meta: AnalysisMeta
     noise_filtering: NoiseFiltering
     emotion_decoding: EmotionDecoding
     viral_mechanism: ViralMechanism
     actionable_insights: list[ActionableInsight] = Field(default_factory=list)
+    risk_control: RiskControl = Field(
+        default_factory=RiskControl, description="品牌合规与风控评估"
+    )
     conclusion: str = Field(default="", description="给创作者的一句话决策建议")
 
     @field_validator("actionable_insights")

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from html import escape as _html_escape
 
 import streamlit as st
 
@@ -32,7 +33,12 @@ from hotspot_analysis.fetcher import (
     douyin_search_url,
     get_source,
 )
-from hotspot_analysis.models import TrendReport
+from hotspot_analysis.models import (
+    HookOption,
+    RiskControl,
+    RiskLevel,
+    TrendReport,
+)
 from hotspot_analysis.renderers import render_json, render_markdown
 
 CUSTOM_MODEL = "自定义…"
@@ -288,6 +294,59 @@ def _follow_metric(report: TrendReport) -> tuple[str, str, str, int]:
     return "谨慎尝试", "价值中等，需差异化切入", "#f59e0b", score
 
 
+def _risk_style(level: RiskLevel) -> tuple[str, str]:
+    """风险等级 → (主色, 中文标签)。绿 / 黄 / 红 / 深红。"""
+    mapping = {
+        RiskLevel.LOW: ("#16a34a", "低风险 · 可放心发布"),
+        RiskLevel.MEDIUM: ("#f59e0b", "中风险 · 建议改写"),
+        RiskLevel.HIGH: ("#dc2626", "高风险 · 需整改"),
+        RiskLevel.BAN: ("#7f1d1d", "封禁级 · 禁止发布"),
+    }
+    return mapping.get(level, ("#6b7280", str(level)))
+
+
+def render_risk_assessment(report: TrendReport) -> None:
+    """「🛡️ 品牌合规与风控评估」卡片：按风险等级绿 / 黄 / 红高亮。"""
+    rc: RiskControl = report.risk_control
+    color, label = _risk_style(rc.risk_level)
+    words = "、".join(_html_escape(w) for w in rc.sensitive_words_found) or "未命中敏感词 ✅"
+    suggestion = _html_escape(rc.compliance_suggestions) or "（暂无合规建议）"
+
+    st.markdown("#### 🛡️ 品牌合规与风控评估")
+    st.markdown(
+        '<div style="border-left:6px solid %s;background:rgba(148,163,184,0.06);'
+        'border-radius:12px;padding:14px 18px;">'
+        '<div style="font-size:15px;font-weight:700;color:%s;">%s</div>'
+        '<div style="margin-top:8px;font-size:13px;color:#6b7280;">命中敏感词 / 极限词</div>'
+        '<div style="font-size:14px;font-weight:600;color:#111827;word-break:break-word;">%s</div>'
+        '<div style="margin-top:10px;font-size:13px;color:#6b7280;">合规替换建议</div>'
+        '<div style="font-size:14px;color:#374151;line-height:1.6;">%s</div>'
+        "</div>" % (color, color, label, words, suggestion),
+        unsafe_allow_html=True,
+    )
+    if rc.is_blocking:
+        st.error("⚠️ 该话题命中高风险表述，请先按上述建议整改后再发布。")
+
+
+def render_hook_matrix(insight, *, key_prefix: str, index: int) -> None:
+    """「A/B 测试 Hook 矩阵」：st.columns(3) 并排展示 3 套 Hook + 一键复制。"""
+    if not insight.golden_hooks:
+        st.info("（模型未给出 Hook 方案）")
+        return
+
+    st.markdown("**🧪 A/B 测试 Hook 矩阵（3 套风格）**")
+    hooks: list[HookOption] = insight.golden_hooks
+    cols = st.columns(len(hooks))
+    for pos, hook in enumerate(hooks):
+        with cols[pos]:
+            with st.container(border=True):
+                st.markdown(f"**{hook.style}**")
+                st.caption(f"👤 主打人群：{hook.target_persona or '—'}")
+                st.info(hook.script or "（空）")
+                st.code(hook.script or "", language=None)
+                st.caption("⬆️ 终端图标一键复制脚本话术")
+
+
 def _cell(text: str) -> str:
     """转义 Markdown 表格单元格中的竖线。"""
     return " ".join(str(text).split()).replace("|", "\\|")
@@ -342,15 +401,35 @@ def _build_storyboard_markdown(report: TrendReport) -> str:
         lines += ["## 🎞️ 分镜剧本", "", "_（本次报告未产出可执行切入点，可能为噪声话题）_", ""]
         return "\n".join(lines).rstrip() + "\n"
 
+    rc = report.risk_control
+    lines += [
+        "## 🛡️ 品牌合规与风控评估",
+        "",
+        f"- **风险等级**：{rc.risk_level.value}",
+        f"- **命中敏感词**：{'、'.join(rc.sensitive_words_found) or '（未命中）'}",
+        f"- **合规建议**：{_cell(rc.compliance_suggestions) or '（无）'}",
+        "",
+    ]
+
     for idx, insight in enumerate(report.actionable_insights, start=1):
         lines += [f"## 角度 {idx}：{insight.angle_title}", ""]
         if insight.target_audience:
             lines += [f"**🎯 目标人群**：{_cell(insight.target_audience)}", ""]
         lines += [
-            "**🪝 黄金 3 秒 Hook**",
+            "**🧪 A/B 测试 Hook 矩阵（3 套风格）**",
             "",
-            f"> {_cell(insight.hook) if insight.hook else '（模型未给出 Hook）'}",
-            "",
+        ]
+        if insight.golden_hooks:
+            lines += ["| 风格 | 钩子话术 | 主打人群 |", "| --- | --- | --- |"]
+            for hook in insight.golden_hooks:
+                lines.append(
+                    f"| {_cell(hook.style)} | {_cell(hook.script)} "
+                    f"| {_cell(hook.target_persona) or '—'} |"
+                )
+            lines.append("")
+        else:
+            lines += ["_（模型未给出 Hook 方案）_", ""]
+        lines += [
             "**🎞️ 内容分镜提纲**",
             "",
             _storyboard_table(insight.content_outline),
@@ -359,6 +438,15 @@ def _build_storyboard_markdown(report: TrendReport) -> str:
             "",
             _steps_table(insight.execution_steps),
             "",
+        ]
+        if insight.engagement_trigger:
+            lines += [
+                "**💬 评论区互动引导点**",
+                "",
+                f"> {_cell(insight.engagement_trigger)}",
+                "",
+            ]
+        lines += [
             "| 维度 | 说明 |",
             "| --- | --- |",
             f"| 💰 变现 / 引流 | {_cell(insight.monetization or '（未给出）')} |",
@@ -660,8 +748,11 @@ def render_storyboard(report: TrendReport, *, key_prefix: str = "story") -> None
         if insight.target_audience:
             st.caption(f"🎯 目标人群：{insight.target_audience}")
 
-        st.markdown("**🪝 黄金 3 秒 Hook**")
-        st.info(insight.hook or "（模型未给出 Hook）")
+        render_hook_matrix(insight, key_prefix=key_prefix, index=idx)
+
+        if insight.engagement_trigger:
+            st.markdown("**💬 评论区互动引导点**")
+            st.info(insight.engagement_trigger)
 
         st.markdown("**🎞️ 内容分镜提纲**")
         st.markdown(_storyboard_table(insight.content_outline))
@@ -716,6 +807,8 @@ def render_result(result: AnalysisResult, *, key_prefix: str) -> None:
 
     markdown = render_markdown(report)
     with tab_insight:
+        render_risk_assessment(report)
+        st.divider()
         st.markdown(markdown)
         st.download_button(
             "⬇️ 下载 Markdown 报告",

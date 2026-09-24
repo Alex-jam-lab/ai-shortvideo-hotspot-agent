@@ -112,9 +112,22 @@ def render_markdown(report: TrendReport) -> str:
             lines.append(f"### 角度 {idx}：{_one_line(ins.angle_title)}")
             lines.append("")
             lines.append(f"- **目标人群**：{_one_line(ins.target_audience) or '（未指定）'}")
-            lines.append(f"- **前 3 秒钩子**：{_one_line(ins.hook) or '（未指定）'}")
             lines.append(f"- **变现 / 引流路径**：{_one_line(ins.monetization) or '（未指定）'}")
             lines.append(f"- **风险提示**：{_one_line(ins.risk_notes) or '（无）'}")
+            if ins.engagement_trigger:
+                lines.append(f"- **评论区互动引导**：{_one_line(ins.engagement_trigger)}")
+            lines.append("")
+            lines.append("**黄金 3 秒 Hook 矩阵（A/B 测试）：**")
+            if ins.golden_hooks:
+                lines.append("| 风格 | 钩子话术 | 主打人群 |")
+                lines.append("| --- | --- | --- |")
+                for hook in ins.golden_hooks:
+                    lines.append(
+                        f"| {_one_line(hook.style)} | {_one_line(hook.script)} "
+                        f"| {_one_line(hook.target_persona) or '—'} |"
+                    )
+            else:
+                lines.append("- （未提供 Hook 方案）")
             lines.append("")
             lines.append("**内容分镜提纲：**")
             lines.append(_ordered_list(ins.content_outline))
@@ -122,6 +135,17 @@ def render_markdown(report: TrendReport) -> str:
             lines.append("**执行步骤：**")
             lines.append(_ordered_list(ins.execution_steps))
             lines.append("")
+
+    # 品牌合规与风控
+    rc = report.risk_control
+    lines.append("## 五、品牌合规与风控评估（Risk Control）")
+    lines.append("")
+    lines.append(f"- **风险等级**：{rc.risk_level.value}")
+    lines.append(
+        f"- **命中敏感词**：{'、'.join(rc.sensitive_words_found) or '（未命中）'}"
+    )
+    lines.append(f"- **合规建议**：{_one_line(rc.compliance_suggestions) or '（无）'}")
+    lines.append("")
 
     # Meta
     lines.append("---")

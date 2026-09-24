@@ -145,3 +145,85 @@ def test_score_range_validation() -> None:
     data["noise_filtering"]["value_score"] = 150
     with pytest.raises(Exception):
         TrendReport.model_validate(data)
+
+
+# --------------------------------------------------------------------------- #
+# 高阶功能：A/B 测试 Hook 矩阵 与 品牌合规风控
+# --------------------------------------------------------------------------- #
+def _insight_with_hooks(**kwargs):
+    from hotspot_analysis.models import ActionableInsight, HookOption
+
+    hooks = [
+        HookOption(style="冲突对立型", script="贵的就一定好吗？", target_persona="价格敏感党"),
+        HookOption(style="悬念好奇型", script="这 5 样东西先别买", target_persona="理性消费者"),
+        HookOption(style="情绪共鸣型", script="不是买不起，是不想当冤种", target_persona="被裹挟者"),
+    ]
+    base = {"angle_title": "角度", "golden_hooks": hooks}
+    base.update(kwargs)
+    return ActionableInsight(**base)
+
+
+def test_legacy_hook_str_migrates_into_golden_hooks() -> None:
+    """旧字段 hook（单句 str）应自动包装为单套 golden_hooks，且 hook 属性可回读。"""
+    from hotspot_analysis.models import ActionableInsight
+
+    insight = ActionableInsight(angle_title="旧格式", hook="旧的单句钩子", target_audience="年轻人")
+    assert len(insight.golden_hooks) == 1
+    assert insight.golden_hooks[0].script == "旧的单句钩子"
+    assert insight.hook == "旧的单句钩子"
+
+
+def test_golden_hooks_style_lookup_and_property() -> None:
+    insight = _insight_with_hooks()
+    assert len(insight.golden_hooks) == 3
+    assert insight.hook == "贵的就一定好吗？"
+    assert insight.hook_by_style("悬念") == "这 5 样东西先别买"
+    assert insight.hook_by_style("不存在") == ""
+
+
+def test_risk_control_level_normalization_and_blocking() -> None:
+    from hotspot_analysis.models import RiskControl, RiskLevel
+
+    rc = RiskControl(risk_level="高风险", sensitive_words_found=["最"], compliance_suggestions="改写")
+    assert rc.risk_level is RiskLevel.HIGH
+    assert rc.is_blocking is True
+
+    assert RiskControl(risk_level="低风险").risk_level is RiskLevel.LOW
+    assert RiskControl(risk_level="Ban").risk_level is RiskLevel.BAN
+    assert RiskControl().risk_level is RiskLevel.LOW
+    assert RiskControl().is_blocking is False
+
+
+def test_report_defaults_risk_control() -> None:
+    report = TrendReport.model_validate(_valuable_fixture())
+    # fixture 未显式给出 risk_control 时应回退为默认低风险
+    assert report.risk_control.risk_level.value == "Low"
+    assert report.risk_control.sensitive_words_found == []
+
+
+def test_render_markdown_includes_hook_matrix_and_risk_section() -> None:
+    data = _valuable_fixture()
+    data["actionable_insights"][0].update(
+        {
+            "golden_hooks": [
+                {"style": "冲突对立型", "script": "话术A", "target_persona": "人群A"},
+                {"style": "悬念好奇型", "script": "话术B", "target_persona": "人群B"},
+                {"style": "情绪共鸣型", "script": "话术C", "target_persona": "人群C"},
+            ],
+            "engagement_trigger": "你站哪一派？",
+        }
+    )
+    data["risk_control"] = {
+        "risk_level": "High",
+        "sensitive_words_found": ["最", "第一"],
+        "compliance_suggestions": "删除极限词。",
+    }
+    report = TrendReport.model_validate(data)
+    md = render_markdown(report)
+
+    assert "黄金 3 秒 Hook 矩阵（A/B 测试）" in md
+    assert "冲突对立型" in md and "悬念好奇型" in md and "情绪共鸣型" in md
+    assert "评论区互动引导" in md
+    assert "品牌合规与风控评估" in md
+    assert "High" in md
+    assert "最、第一" in md

@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from dataclasses import dataclass, field
 from html import escape as _html_escape
 
@@ -347,6 +349,64 @@ def render_hook_matrix(insight, *, key_prefix: str, index: int) -> None:
                 st.caption("⬆️ 终端图标一键复制脚本话术")
 
 
+def render_pitfall_warnings(report: TrendReport) -> None:
+    """「⚠️ 舆情雷区与避坑预警」卡片：高亮评论区负面声音与禁止触碰的雷区。"""
+    em = report.emotion_decoding
+    if em.status == "skipped" or not (em.top_controversies or em.pitfall_warnings):
+        return
+
+    st.markdown("#### ⚠️ 舆情雷区与避坑预警")
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**🗣️ 评论区核心争议 / 负面声音**")
+        if em.top_controversies:
+            for item in em.top_controversies:
+                st.markdown(
+                    '<div style="border-left:4px solid #ef4444;background:rgba(239,68,68,0.08);'
+                    'border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:14px;'
+                    'color:#b91c1c;">%s</div>' % _html_escape(item),
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.caption("（未捕捉到明显负面声音）")
+    with right:
+        st.markdown("**🚫 拍摄避坑雷区（禁止触碰）**")
+        if em.pitfall_warnings:
+            for item in em.pitfall_warnings:
+                st.markdown(
+                    '<div style="border-left:4px solid #f59e0b;background:rgba(245,158,11,0.08);'
+                    'border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:14px;'
+                    'color:#b45309;">%s</div>' % _html_escape(item),
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.caption("（暂无避坑提示）")
+
+
+def render_angle_comparison(insight, *, index: int) -> None:
+    """「💡 差异化/反常识切入视角」对比卡片：同质化角度 vs 蓝海切入提案。"""
+    if not (insight.mainstream_angles or insight.differentiated_angle):
+        return
+
+    st.markdown("**💡 差异化 / 反常识切入视角**")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        with st.container(border=True):
+            st.markdown("**🟥 同质化常规角度（红海）**")
+            if insight.mainstream_angles:
+                for item in insight.mainstream_angles:
+                    st.markdown(f"- {item}")
+            else:
+                st.caption("（未识别到明显同质化角度）")
+    with col_b:
+        with st.container(border=True):
+            st.markdown("**🟦 蓝海 / 反常识切入提案**")
+            if insight.differentiated_angle:
+                st.success(insight.differentiated_angle)
+            else:
+                st.caption("（模型未给出差异化视角）")
+
+
 def _cell(text: str) -> str:
     """转义 Markdown 表格单元格中的竖线。"""
     return " ".join(str(text).split()).replace("|", "\\|")
@@ -456,8 +516,71 @@ def _build_storyboard_markdown(report: TrendReport) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _shot_size(text: str) -> str:
+    """依据分镜内容推断景别（用于 CSV 分镜表）。"""
+    rules = (
+        ("钩子", "近景"),
+        ("开场", "近景"),
+        ("特写", "特写"),
+        ("细节", "特写"),
+        ("对比", "特写"),
+        ("价格", "特写"),
+        ("展示", "中景"),
+        ("实测", "中景"),
+        ("引导", "全景"),
+        ("总结", "近景"),
+    )
+    for keyword, size in rules:
+        if keyword in text:
+            return size
+    return "中景"
+
+
+def _shot_sfx(text: str) -> str:
+    """依据分镜内容给出一条音效 / BGM 建议。"""
+    if any(k in text for k in ("钩子", "开场")):
+        return "重音鼓点 / 卡点 BGM 起"
+    if any(k in text for k in ("对比", "价格", "特写")):
+        return "叮·价格反差音效"
+    if any(k in text for k in ("引导", "总结")):
+        return "BGM 渐弱 + 提示音"
+    return "轻快 BGM 铺底"
+
+
+def _build_storyboard_csv(report: TrendReport) -> str:
+    """把分镜提纲导出为 CSV（镜号 / 景别 / 台词 / 音效 / 互动点），便于导入 Excel / 飞书。"""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["角度", "镜号", "景别", "台词", "音效", "互动点"])
+
+    for angle_idx, insight in enumerate(report.actionable_insights, start=1):
+        outline = insight.content_outline or ["（未给出分镜提纲）"]
+        last = len(outline)
+        for shot_idx, raw in enumerate(outline, start=1):
+            text = " ".join(str(raw).split())
+            for sep in ("：", ":"):
+                if sep in text:
+                    _head, tail = text.split(sep, 1)
+                    break
+            else:
+                tail = text
+            interaction = insight.engagement_trigger if shot_idx == last else ""
+            writer.writerow(
+                [
+                    f"角度{angle_idx}：{insight.angle_title}",
+                    shot_idx,
+                    _shot_size(text),
+                    tail,
+                    _shot_sfx(text),
+                    interaction,
+                ]
+            )
+
+    return buffer.getvalue()
+
+
 def _storyboard_download(report: TrendReport, *, key_prefix: str) -> None:
-    """「🎬 拍摄分镜剧本」Tab 底部的一键导出按钮。"""
+    """「🎬 拍摄分镜剧本」Tab 底部的一键导出按钮（Markdown + CSV）。"""
     st.download_button(
         "⬇️ 下载短视频拍摄脚本（Markdown）",
         data=_build_storyboard_markdown(report),
@@ -465,6 +588,14 @@ def _storyboard_download(report: TrendReport, *, key_prefix: str) -> None:
         mime="text/markdown",
         help="导出「决策建议 + 黄金 3 秒 Hook + 分镜表格」为标准 Markdown 脚本文档。",
         key=f"{key_prefix}_dl_story",
+    )
+    st.download_button(
+        "📊 下载分镜表格（CSV，可直接导入 Excel / 飞书）",
+        data=_build_storyboard_csv(report),
+        file_name=f"{_safe_filename(report.meta.keyword)}_分镜表.csv",
+        mime="text/csv",
+        help="列：角度 / 镜号 / 景别 / 台词 / 音效 / 互动点，UTF-8 编码，可直接导入 Excel 或飞书多维表格。",
+        key=f"{key_prefix}_dl_csv",
     )
 
 
@@ -748,6 +879,8 @@ def render_storyboard(report: TrendReport, *, key_prefix: str = "story") -> None
         if insight.target_audience:
             st.caption(f"🎯 目标人群：{insight.target_audience}")
 
+        render_angle_comparison(insight, index=idx)
+
         render_hook_matrix(insight, key_prefix=key_prefix, index=idx)
 
         if insight.engagement_trigger:
@@ -809,6 +942,7 @@ def render_result(result: AnalysisResult, *, key_prefix: str) -> None:
     with tab_insight:
         render_risk_assessment(report)
         st.divider()
+        render_pitfall_warnings(report)
         st.markdown(markdown)
         st.download_button(
             "⬇️ 下载 Markdown 报告",

@@ -352,8 +352,8 @@ def test_ui_has_risk_card_and_hook_matrix(app_module, monkeypatch):
     assert len(cols) == 3, f"应并排渲染 3 套 Hook，实际 {len(cols)}"
 
 
-def test_storyboard_download_button_filename(app_module, monkeypatch):
-    """底部导出按钮应使用「{keyword}_短视频拍摄脚本.md」为默认文件名。"""
+def _download_report(app_module, *, keyword: str = "反向消费/测试"):
+    """构造一份含分镜提纲与互动引导的最小报告，供导出按钮测试复用。"""
     from hotspot_analysis.models import (
         ActionableInsight,
         AnalysisMeta,
@@ -364,8 +364,8 @@ def test_storyboard_download_button_filename(app_module, monkeypatch):
         ViralMechanism,
     )
 
-    report = TrendReport(
-        meta=AnalysisMeta(keyword="反向消费/测试"),
+    return TrendReport(
+        meta=AnalysisMeta(keyword=keyword),
         noise_filtering=NoiseFiltering(
             is_valuable_trend=True,
             noise_type=NoiseType.VALUABLE,
@@ -374,19 +374,191 @@ def test_storyboard_download_button_filename(app_module, monkeypatch):
         ),
         emotion_decoding=EmotionDecoding(),
         viral_mechanism=ViralMechanism(),
-        actionable_insights=[ActionableInsight(angle_title="角度", hook="钩子")],
+        actionable_insights=[
+            ActionableInsight(
+                angle_title="角度",
+                hook="钩子",
+                content_outline=["开场钩子：贵的就一定好吗", "平替实测：实测 3 款饮品", "结尾引导"],
+                engagement_trigger="你会怎么选？",
+            )
+        ],
         conclusion="结论",
     )
 
-    captured: dict[str, object] = {}
+
+def test_storyboard_download_buttons_markdown_and_csv(app_module, monkeypatch):
+    """底部应同时提供 Markdown 脚本与 CSV 分镜表两个导出按钮。"""
+    report = _download_report(app_module)
+
+    captured: list[dict[str, object]] = []
     monkeypatch.setattr(
-        app_module.st, "download_button", lambda *a, **k: captured.update(k, label=a[0] if a else "")
+        app_module.st,
+        "download_button",
+        lambda *a, **k: captured.append({**k, "label": a[0] if a else ""}),
     )
     app_module._storyboard_download(report, key_prefix="t")
 
-    assert captured.get("file_name") == "反向消费_测试_短视频拍摄脚本.md"
-    assert captured.get("mime") == "text/markdown"
-    assert "拍摄脚本" in str(captured.get("label", ""))
+    assert len(captured) == 2, f"应渲染 2 个导出按钮，实际 {len(captured)}"
+
+    md_btn = captured[0]
+    assert md_btn["file_name"] == "反向消费_测试_短视频拍摄脚本.md"
+    assert md_btn["mime"] == "text/markdown"
+    assert "拍摄脚本" in str(md_btn["label"])
+
+    csv_btn = captured[1]
+    assert csv_btn["file_name"] == "反向消费_测试_分镜表.csv"
+    assert csv_btn["mime"] == "text/csv"
+    assert "CSV" in str(csv_btn["label"])
+
+
+def test_build_storyboard_csv_columns_and_interaction(app_module):
+    """CSV 表头应为「角度/镜号/景别/台词/音效/互动点」，互动点仅挂在最后一镜。"""
+    import csv as _csv
+
+    report = _download_report(app_module)
+    rows = list(_csv.reader(app_module._build_storyboard_csv(report).splitlines()))
+
+    assert rows[0] == ["角度", "镜号", "景别", "台词", "音效", "互动点"]
+    assert len(rows) == 1 + 3, "3 条分镜提纲应产出 3 行数据"
+
+    body = rows[1:]
+    assert [r[1] for r in body] == ["1", "2", "3"]
+    # 互动点只出现在最后一镜
+    assert [r[5] for r in body] == ["", "", "你会怎么选？"]
+    # 台词列应剥离「景别前缀：」只留可念内容
+    assert body[0][3] == "贵的就一定好吗"
+    # 景别 / 音效应有可读取值
+    assert all(r[2] and r[4] for r in body)
+
+
+def test_render_pitfall_warnings_renders_two_columns(app_module, monkeypatch):
+    """舆情雷区卡片应并排展示「负面声音」与「避坑雷区」两栏。"""
+    from hotspot_analysis.models import (
+        AnalysisMeta,
+        EmotionDecoding,
+        NoiseFiltering,
+        NoiseType,
+        TrendReport,
+        ViralMechanism,
+    )
+
+    report = TrendReport(
+        meta=AnalysisMeta(keyword="反向消费"),
+        noise_filtering=NoiseFiltering(
+            is_valuable_trend=True,
+            noise_type=NoiseType.VALUABLE,
+            noise_reason="可复制",
+            value_score=80,
+        ),
+        emotion_decoding=EmotionDecoding(
+            top_controversies=["这不就是穷吗？", "幸存者偏差"],
+            pitfall_warnings=["避免贬低高消费人群"],
+        ),
+        viral_mechanism=ViralMechanism(),
+        conclusion="结论",
+    )
+
+    html_calls: list[str] = []
+    monkeypatch.setattr(app_module.st, "markdown", lambda *a, **k: html_calls.append(str(a[0]) if a else ""))
+    monkeypatch.setattr(app_module.st, "caption", lambda *a, **k: None)
+
+    cols: list[object] = []
+
+    class _Col:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _columns(n):
+        result = [_Col() for _ in range(n if isinstance(n, int) else len(n))]
+        cols.extend(result)
+        return result
+
+    monkeypatch.setattr(app_module.st, "columns", _columns)
+
+    app_module.render_pitfall_warnings(report)
+
+    assert len(cols) == 2, "应并排渲染两栏"
+    joined = " ".join(html_calls)
+    assert "舆情雷区与避坑预警" in joined
+    assert "这不就是穷吗？" in joined
+    assert "避免贬低高消费人群" in joined
+
+
+def test_render_pitfall_warnings_skips_when_empty(app_module, monkeypatch):
+    """无争议 / 无雷区（或噪声跳过）时不应渲染卡片。"""
+    from hotspot_analysis.models import (
+        AnalysisMeta,
+        EmotionDecoding,
+        NoiseFiltering,
+        NoiseType,
+        TrendReport,
+        ViralMechanism,
+    )
+
+    report = TrendReport(
+        meta=AnalysisMeta(keyword="反向消费"),
+        noise_filtering=NoiseFiltering(
+            is_valuable_trend=True,
+            noise_type=NoiseType.VALUABLE,
+            noise_reason="可复制",
+            value_score=80,
+        ),
+        emotion_decoding=EmotionDecoding(status="skipped"),
+        viral_mechanism=ViralMechanism(),
+        conclusion="结论",
+    )
+
+    called: list[str] = []
+    monkeypatch.setattr(app_module.st, "markdown", lambda *a, **k: called.append(str(a[0]) if a else ""))
+    app_module.render_pitfall_warnings(report)
+    assert called == []
+
+
+def test_render_angle_comparison_renders_red_blue(app_module, monkeypatch):
+    """差异化切入卡片应分别渲染「红海同质化」与「蓝海提案」。"""
+    from hotspot_analysis.models import ActionableInsight
+
+    insight = ActionableInsight(
+        angle_title="角度",
+        mainstream_angles=["平替清单", "省钱攻略"],
+        differentiated_angle="反常识：不买才是最贵的省法",
+    )
+
+    md_calls: list[str] = []
+    success_calls: list[str] = []
+    monkeypatch.setattr(app_module.st, "markdown", lambda *a, **k: md_calls.append(str(a[0]) if a else ""))
+    monkeypatch.setattr(app_module.st, "success", lambda *a, **k: success_calls.append(str(a[0]) if a else ""))
+    monkeypatch.setattr(app_module.st, "caption", lambda *a, **k: None)
+
+    ctx = __import__("contextlib").nullcontext()
+    monkeypatch.setattr(app_module.st, "container", lambda *a, **k: ctx)
+
+    cols: list[object] = []
+
+    class _Col:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _columns(n):
+        result = [_Col() for _ in range(n if isinstance(n, int) else len(n))]
+        cols.extend(result)
+        return result
+
+    monkeypatch.setattr(app_module.st, "columns", _columns)
+
+    app_module.render_angle_comparison(insight, index=1)
+
+    assert len(cols) == 2
+    joined = " ".join(md_calls)
+    assert "差异化 / 反常识切入视角" in joined
+    assert "平替清单" in joined
+    assert success_calls == ["反常识：不买才是最贵的省法"]
 
 
 def test_render_video_wall_always_renders_search_button(app_module, monkeypatch):

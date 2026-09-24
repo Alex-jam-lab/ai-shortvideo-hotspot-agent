@@ -135,6 +135,14 @@ class EmotionDecoding(BaseModel):
     emotion_intensity: int = Field(
         default=0, ge=0, le=100, description="情绪强度 0-100"
     )
+    top_controversies: list[str] = Field(
+        default_factory=list,
+        description="评论区 TOP3 核心争议 / 负面声音标签（反驳、质疑、骂声）",
+    )
+    pitfall_warnings: list[str] = Field(
+        default_factory=list,
+        description="拍摄避坑雷区预警（易引发反噬的表述 / 观点 / 画面）",
+    )
     summary: str = Field(default="", description="情绪层面一句话总结")
 
 
@@ -193,6 +201,14 @@ class ActionableInsight(BaseModel):
     )
     monetization: str = Field(default="", description="变现 / 引流路径")
     risk_notes: str = Field(default="", description="合规与蹭热点风险提示")
+    mainstream_angles: list[str] = Field(
+        default_factory=list,
+        description="当前同质化 / 红海常规切入角度（大家都这么拍的套路）",
+    )
+    differentiated_angle: str = Field(
+        default="",
+        description="蓝海 / 反常识的差异化切入视角（人无我有的独特提案）",
+    )
 
     @model_validator(mode="before")
     @classmethod

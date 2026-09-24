@@ -249,3 +249,73 @@ def test_render_markdown_includes_hook_matrix_and_risk_section() -> None:
     assert "品牌合规与风控评估" in md
     assert "High" in md
     assert "最、第一" in md
+
+
+# --------------------------------------------------------------------------- #
+# 高阶功能：舆情雷区 / 差异化切入视角
+# --------------------------------------------------------------------------- #
+def test_emotion_decoding_defaults_controversies_and_pitfalls() -> None:
+    """新字段应具备向后兼容默认值（空列表），旧 JSON 仍可正常校验。"""
+    from hotspot_analysis.models import EmotionDecoding
+
+    em = EmotionDecoding(pain_points=["x"])
+    assert em.top_controversies == []
+    assert em.pitfall_warnings == []
+
+    report = TrendReport.model_validate(_valuable_fixture())
+    assert report.emotion_decoding.top_controversies == []
+    assert report.emotion_decoding.pitfall_warnings == []
+
+
+def test_actionable_insight_defaults_mainstream_and_differentiated() -> None:
+    """主流 / 差异化角度的默认值应保证旧数据兼容。"""
+    from hotspot_analysis.models import ActionableInsight
+
+    ins = ActionableInsight(angle_title="角度")
+    assert ins.mainstream_angles == []
+    assert ins.differentiated_angle == ""
+
+
+def test_render_markdown_includes_controversies_and_pitfalls() -> None:
+    """Step 2 渲染应包含「评论区争议」与「避坑雷区预警」两段。"""
+    data = _valuable_fixture()
+    data["emotion_decoding"].update(
+        {
+            "top_controversies": ["这不就是穷吗？", "幸存者偏差", "又在贩卖焦虑"],
+            "pitfall_warnings": ["避免直接贬低高消费人群", "不要点名具体品牌"],
+        }
+    )
+    report = TrendReport.model_validate(data)
+    md = render_markdown(report)
+
+    assert "评论区 TOP3 核心争议 / 负面声音" in md
+    assert "这不就是穷吗？" in md
+    assert "拍摄避坑雷区预警" in md
+    assert "不要点名具体品牌" in md
+
+
+def test_render_markdown_includes_angle_comparison() -> None:
+    """Step 4 渲染应包含「同质化角度 vs 蓝海切入」对比段落。"""
+    data = _valuable_fixture()
+    data["actionable_insights"][0].update(
+        {
+            "mainstream_angles": ["平替清单", "省钱攻略"],
+            "differentiated_angle": "反常识：不买才是最贵的省法",
+        }
+    )
+    report = TrendReport.model_validate(data)
+    md = render_markdown(report)
+
+    assert "同质化角度 vs 蓝海切入" in md
+    assert "平替清单" in md and "省钱攻略" in md
+    assert "反常识：不买才是最贵的省法" in md
+
+
+def test_render_markdown_omits_optional_sections_when_empty() -> None:
+    """新字段为空时不应输出对应小节标题（保持报告简洁）。"""
+    report = TrendReport.model_validate(_valuable_fixture())
+    md = render_markdown(report)
+
+    assert "评论区 TOP3 核心争议 / 负面声音" not in md
+    assert "拍摄避坑雷区预警" not in md
+    assert "同质化角度 vs 蓝海切入" not in md

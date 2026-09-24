@@ -32,6 +32,9 @@ value_score 锚点：0-30 无讨论价值；31-60 短期流量、难沉淀；61-
 - core_emotions：2-4 个情绪标签（愤怒/共鸣/解气/焦虑/羡慕/猎奇等）
 - collective_unconscious：1-3 条群体心理
 - emotion_intensity：情绪强度 0-100
+- top_controversies：评论区 **TOP3 核心争议 / 负面声音**标签（如「这是炫富」「站着说话不腰疼」「数据造假」），
+  直接引用评论中的反驳与质疑，禁止编造
+- pitfall_warnings：拍摄**避坑雷区预警** 2-4 条（哪些表述 / 观点 / 画面容易引发反噬、举报或舆情翻车）
 
 3. 【传播引爆点 (Viral Mechanism)】
 推导它为什么能上热搜（如：强视觉冲突、争议性观点导致评论区大战、稀缺爆料）。
@@ -52,6 +55,9 @@ value_score 锚点：0-30 无讨论价值；31-60 短期流量、难沉淀；61-
 - engagement_trigger：**评论区互动引导点**，明确写出结尾提问 / 置顶评论 / 二选一站队话术
 - monetization：变现/带货或引流路径
 - risk_notes：合规与蹭热点风险提示
+- mainstream_angles：当前该话题**同质化 / 红海**的 2-3 个常规切入角度（大家都在拍的老套路）
+- differentiated_angle：**蓝海 / 反常识的差异化切入视角**（人无我有、反直觉但成立的一句话提案，
+  避免与 mainstream_angles 重复）
 
 【A/B 测试 Hook 矩阵（golden_hooks 硬性要求）】
 每条 actionable_insights 的 golden_hooks 必须且只能包含 **3 套**方案，
@@ -83,6 +89,10 @@ target_persona（这套 Hook 主打的人群画像）。
 - 每条 actionable_insights 必须给出 engagement_trigger（评论区引导互动点），
   必须是可直接使用的提问句或站队话术，禁止留空。
 - content_outline 至少 3 条、execution_steps 至少 2 条，必须具体到动作。
+- emotion_decoding.top_controversies 为有效话题时必须输出 2-3 条真实负面声音，
+  pitfall_warnings 必须输出 2-4 条拍摄雷区，禁止留空数组或用「无」占位。
+- 每条 actionable_insights 必须给出 mainstream_angles（2-3 条）与 differentiated_angle（1 条），
+  differentiated_angle 必须与同质化角度形成明确反差，禁止与 mainstream_angles 语义重复。
 - 所有痛点/情绪/引爆因子必须引用评论中的具体信号，禁止只写「无」「不清楚」「一般」。
 - 若信息不足，请基于词条合理推断并降低相应分值，但不得留空必填项。
 - 无法确定的信息（如 visual_conflict）用「无明显视觉冲突」等明确表述，而非空字符串。
@@ -119,6 +129,8 @@ JSON_SCHEMA_BLOCK = {
         "pain_points": ["string"],
         "core_emotions": ["string"],
         "collective_unconscious": ["string"],
+        "top_controversies": ["string（评论区 TOP3 核心争议/负面声音）"],
+        "pitfall_warnings": ["string（拍摄避坑雷区预警）"],
         "emotion_intensity": "integer 0-100",
         "summary": "string",
     },
@@ -157,6 +169,8 @@ JSON_SCHEMA_BLOCK = {
             "engagement_trigger": "string",
             "monetization": "string",
             "risk_notes": "string",
+            "mainstream_angles": ["string（同质化常规角度）"],
+            "differentiated_angle": "string（蓝海/反常识差异化视角）",
         }
     ],
     "risk_control": {
@@ -220,6 +234,12 @@ _FEWSHOT_ASSISTANT_VALID = {
         "pain_points": ["购买力不足与收入预期转弱", "对品牌溢价与智商税的反感"],
         "core_emotions": ["共鸣", "自嘲", "焦虑"],
         "collective_unconscious": ["用省钱完成身份认同", "以自嘲消解焦虑"],
+        "top_controversies": ["这是穷还嘴硬，被消费主义洗脑了", "站着说话不腰疼，有钱谁不想买好的", "又是卖平价好物的软广吧"],
+        "pitfall_warnings": [
+            "别把「穷」说成「高级」，容易刺痛真实经济困难人群",
+            "避免点名贬低具体品牌，易被投诉或引发品牌粉丝反扑",
+            "未标注广告就挂车带货，存在《广告法》合规风险",
+        ],
         "emotion_intensity": 78,
         "summary": "消费降级焦虑被重新包装为「清醒」人设。",
     },
@@ -258,6 +278,8 @@ _FEWSHOT_ASSISTANT_VALID = {
             "engagement_trigger": "结尾提问：你最近一次「反向消费」省了多少钱？评论区晒出来，我挑 3 个最狠的置顶。",
             "monetization": "平价好物联盟分佣、临期食品团购、二手平台引流",
             "risk_notes": "不得虚构原价或功效，广告需标注，避免贬低具体品牌",
+            "mainstream_angles": ["省钱清单盘点", "平价平替开箱测评", "记账省钱生活 vlog"],
+            "differentiated_angle": "反常识切入：不复盘「怎么省」，而是算清「哪些钱根本不该省」——用一次「贵但值」的消费打脸极端省钱，讨论性价比的真正边界。",
         },
         {
             "angle_title": "两代人的省钱对谈",
@@ -284,6 +306,8 @@ _FEWSHOT_ASSISTANT_VALID = {
             "engagement_trigger": "留下问题：你家是爸妈省钱还是你省钱？评论区报个数，看看哪代人更会过日子。",
             "monetization": "情感号涨粉后接家庭理财科普与家居好物",
             "risk_notes": "避免把父母塑造成抠门，理财内容需持牌合规，不承诺收益",
+            "mainstream_angles": ["两代人消费观对谈", "父母省钱名场面盘点", "代际情感煽情短片"],
+            "differentiated_angle": "反常识切入：不拍「谁更省」，而是追问「为什么上一代敢花的钱我们现在不敢花」，把代际冲突转成对收入预期与安全感的冷静观察。",
         },
     ],
     "risk_control": {

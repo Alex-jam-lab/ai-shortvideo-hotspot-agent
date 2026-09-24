@@ -252,8 +252,10 @@ streamlit run app.py
 | 🔥 最高热度/点赞爆款对标 | 搜索页按「最多点赞」排序解析 Top1~Top3，卡片展示封面 / 作者 / 点赞高亮（Top1 标注「🔥 点赞量最高」）；**始终**渲染「🔥 查看该热点『最多点赞/播放』视频列表」直达按钮 |
 | 🧾 三 Tab 报告 | 「💡 核心洞察」/「🎬 拍摄分镜剧本」/「⚙️ JSON 源码」 |
 | 🛡️ 品牌合规与风控 | 「核心洞察」顶部卡片按风险等级**绿 / 黄 / 红**高亮：命中敏感词 / 极限词清单 + 合规替换建议，High/Ban 额外弹出整改警示 |
+| ⚠️ 舆情雷区与避坑预警 | 「核心洞察」两栏卡片：左栏红色高亮**评论区 TOP3 核心争议 / 负面声音**，右栏琥珀色高亮**拍摄避坑雷区（禁止触碰）** |
+| 💡 差异化切入视角 | 「核心洞察」两栏对比卡片：🟥**同质化常规角度（红海）** vs 🟦**蓝海 / 反常识切入提案**，每个角度单独成卡 |
 | 🧪 A/B 测试 Hook 矩阵 | 「拍摄分镜剧本」顶部用 `st.columns(3)` 并排展示 3 套风格 Hook 卡片（冲突 / 悬念 / 共鸣）+ 主打人群，附 `st.code` 终端图标**一键复制**话术 |
-|  一键导出 | Markdown 报告 / JSON 源码 / **短视频拍摄脚本** 三个下载按钮 |
+|  一键导出 | Markdown 报告 / JSON 源码 / **短视频拍摄脚本** / **CSV 分镜表** 四个下载按钮 |
 | 🛠️ 指标明细 | 端到端耗时 / API 延迟 / Token / 成本下沉到折叠面板，不干扰主视觉 |
 | ⚙️ 侧边栏 | 顶部仅保留 Mock 开关（toggle）、模型切换、API Key 状态；**开发者参数（含可编辑 API Key）全部收纳进「⚙️ 高级调试配置」折叠面板** |
 
@@ -278,11 +280,17 @@ streamlit run app.py
   每张卡片含主打人群 + `st.code` 终端图标**一键复制**话术，方便编导挑选 A/B 版本；
 - **💬 评论区互动引导点**：`engagement_trigger`（结尾提问 / 置顶评论 / 二选一站队）以
   `st.info()` 高亮，直接用于撬动评论区互动；
+- **💡 差异化 / 反常识切入视角**：`st.columns(2)` 对比卡片，🟥 红海**同质化常规角度** vs
+  🟦 蓝海**差异化切入提案**（`st.success()` 高亮），直接回答「大家都这么拍，我该怎么拍」；
 - **内容分镜提纲**与**执行步骤**强制渲染为 Markdown 表格
   （`| 序号 | 画面/步骤 | 核心台词/Hook |`），大幅提升专业感；
 - **变现 / 引流**与**合规风险**并排展示；
-- **Tab 底部一键导出**：点击 `⬇️ 下载短视频拍摄脚本（Markdown）` 即可下载
-  `{keyword}_短视频拍摄脚本.md`。
+- **Tab 底部一键导出**：
+  - `⬇️ 下载短视频拍摄脚本（Markdown）` → `{keyword}_短视频拍摄脚本.md`；
+  - `📊 下载分镜表格（CSV，可直接导入 Excel / 飞书）` → `{keyword}_分镜表.csv`，
+    列为 `角度 / 镜号 / 景别 / 台词 / 音效 / 互动点`（UTF-8），景别与音效由
+    [`_shot_size()`](app.py) / [`_shot_sfx()`](app.py) 依分镜内容智能推断，
+    互动引导点自动挂在每个角度的**最后一镜**。
 
 导出文档由 [`_build_storyboard_markdown()`](app.py) 生成，结构为：
 
@@ -467,9 +475,16 @@ Markdown 报告的「运行信息」区块会同步展示：模式（真实 / Mo
 - **品牌合规风控**：[`RiskControl`](hotspot_analysis/models.py:76) 输出风险等级
   （Low / Medium / High / Ban）、命中敏感词 / 极限词与合规替换建议，
   经 [`render_risk_assessment()`](app.py) 以绿 / 黄 / 红卡片高亮，`is_blocking` 触发整改警示。
+- **舆情雷区与差异化视角**：[`EmotionDecoding.top_controversies`](hotspot_analysis/models.py:138) /
+  [`pitfall_warnings`](hotspot_analysis/models.py:142) 承载评论区争议与拍摄避坑雷区，
+  经 [`render_pitfall_warnings()`](app.py) 双栏高亮；
+  [`ActionableInsight.mainstream_angles`](hotspot_analysis/models.py:204) /
+  [`differentiated_angle`](hotspot_analysis/models.py:208) 承载红海 vs 蓝海角度，
+  经 [`render_angle_comparison()`](app.py) 对比呈现，均由 Prompt + JSON Schema + Few-Shot 全链路约束。
 - **结构化脚本与导出**：A/B Hook 矩阵、互动引导、分镜与执行步骤以表格呈现，并在 Tab 底部提供
-  [`_build_storyboard_markdown()`](app.py) / `_storyboard_download()` 一键导出
-  `{keyword}_短视频拍摄脚本.md`，可直接交付拍摄。
+  [`_build_storyboard_markdown()`](app.py) / [`_build_storyboard_csv()`](app.py) /
+  `_storyboard_download()` 一键导出 Markdown 脚本与
+  `{keyword}_分镜表.csv`（镜号 / 景别 / 台词 / 音效 / 互动点），可直接交付拍摄或导入飞书多维表格。
 - **冒烟测试**：[`tests/test_app_import.py`](tests/test_app_import.py:1) 校验模块可导入、
   `main` 可调用、预设完整、分镜表格与脚本导出正确；未安装 Streamlit 时自动跳过。
 
@@ -483,7 +498,7 @@ pytest -q
 
 测试完全离线（mock 数据 + 渲染 + JSON 提取 + 提示词组装 + 采集层解析），无需 API Key 与浏览器。
 
-当前状态：**94 passed / 2 skipped**（跳过项为需要浏览器 / 可选依赖的用例）。
+当前状态：**103 passed / 2 skipped**（跳过项为需要浏览器 / 可选依赖的用例）。
 
 ---
 

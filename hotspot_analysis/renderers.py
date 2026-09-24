@@ -75,6 +75,14 @@ def render_markdown(report: TrendReport) -> str:
         lines.append("")
         lines.append("**集体无意识 / 群体心理：**")
         lines.append(_bullet_list(em.collective_unconscious))
+        if em.top_controversies:
+            lines.append("")
+            lines.append("**评论区 TOP3 核心争议 / 负面声音：**")
+            lines.append(_bullet_list(em.top_controversies))
+        if em.pitfall_warnings:
+            lines.append("")
+            lines.append("**⚠️ 拍摄避坑雷区预警：**")
+            lines.append(_bullet_list(em.pitfall_warnings))
         if em.summary:
             lines.append("")
             lines.append(f"**小结**：{_one_line(em.summary)}")
@@ -117,6 +125,15 @@ def render_markdown(report: TrendReport) -> str:
             if ins.engagement_trigger:
                 lines.append(f"- **评论区互动引导**：{_one_line(ins.engagement_trigger)}")
             lines.append("")
+            if ins.mainstream_angles or ins.differentiated_angle:
+                lines.append("**同质化角度 vs 蓝海切入：**")
+                lines.append("")
+                lines.append(f"- **同质化常规角度**：{'；'.join(ins.mainstream_angles) or '（无）'}")
+                lines.append(
+                    f"- **💡 蓝海/反常识差异化视角**："
+                    f"{_one_line(ins.differentiated_angle) or '（无）'}"
+                )
+                lines.append("")
             lines.append("**黄金 3 秒 Hook 矩阵（A/B 测试）：**")
             if ins.golden_hooks:
                 lines.append("| 风格 | 钩子话术 | 主打人群 |")

@@ -57,6 +57,16 @@ def build_demo_report(keyword: str = "年轻人开始流行反向消费") -> Tre
                 "通过「省钱」完成群体身份认同",
                 "以自嘲消解焦虑、抱团取暖",
             ],
+            top_controversies=[
+                "这是穷还嘴硬，被消费主义洗脑了",
+                "有钱谁不想买好的，别把没钱说成清醒",
+                "又在给平价好物打软广吧",
+            ],
+            pitfall_warnings=[
+                "别把「穷」包装成「高级」，易刺痛真实经济困难人群",
+                "避免点名贬低具体品牌，防止品牌粉丝反扑",
+                "挂车带货未标注「广告」存在《广告法》合规风险",
+            ],
             emotion_intensity=78,
             summary="话题本质是「消费降级焦虑」转化为「清醒人设」的集体情绪出口。",
         ),
@@ -104,6 +114,11 @@ def build_demo_report(keyword: str = "年轻人开始流行反向消费") -> Tre
                 engagement_trigger="结尾提问：你买过最不值的智商税是什么？评论区说出来，我挑 3 个置顶避坑。",
                 monetization="挂车低价好物 / 引流至省钱社群",
                 risk_notes="避免贬低他人消费选择，防止评论区对立失控",
+                mainstream_angles=["省钱清单盘点", "平价平替开箱", "记账省钱 vlog"],
+                differentiated_angle=(
+                    "反常识切入：不复盘「怎么省」，而是算清「哪些钱根本不该省」——"
+                    "用一次「贵但值」的消费反衬极端省钱，讨论性价比的真正边界。"
+                ),
             ),
             ActionableInsight(
                 angle_title="两代人消费观对谈",
@@ -139,6 +154,11 @@ def build_demo_report(keyword: str = "年轻人开始流行反向消费") -> Tre
                 engagement_trigger="留下问题：你家是爸妈省钱还是你省钱？评论区报个数，看看哪代人更会过日子。",
                 monetization="家庭好物 / 记账工具推广",
                 risk_notes="避免制造代际对立，落点应是理解而非指责",
+                mainstream_angles=["两代人消费观对谈", "父母省钱名场面盘点", "代际情感煽情"],
+                differentiated_angle=(
+                    "反常识切入：不拍「谁更省」，而是追问「为什么上一代人敢花的钱，"
+                    "我们这代反而不敢花」，把代际冲突转成对收入预期与安全感的冷静观察。"
+                ),
             ),
         ],
         risk_control=RiskControl(

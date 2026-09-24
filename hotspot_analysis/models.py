@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Any, Optional
 
@@ -98,6 +99,24 @@ class RiskControl(BaseModel):
                     return level
         return v
 
+    @field_validator("sensitive_words_found", mode="before")
+    @classmethod
+    def _coerce_words(cls, v: Any) -> Any:  # noqa: ANN401
+        """模型有时返回逗号分隔字符串，统一归一为 list[str]。"""
+        if isinstance(v, str):
+            return [w.strip() for w in re.split(r"[、,，;；\n]+", v) if w.strip()]
+        if isinstance(v, (list, tuple)):
+            return [str(w).strip() for w in v if str(w).strip()]
+        return v
+
+    @field_validator("compliance_suggestions", mode="before")
+    @classmethod
+    def _coerce_suggestions(cls, v: Any) -> Any:  # noqa: ANN401
+        """模型有时返回字符串列表，统一拼接为单段文本（避免校验失败触发修复重试）。"""
+        if isinstance(v, (list, tuple)):
+            return "；".join(str(x).strip() for x in v if str(x).strip())
+        return v
+
     @property
     def is_blocking(self) -> bool:
         """高风险 / 封禁级别需要发布前先整改。"""
@@ -143,6 +162,14 @@ class HookOption(BaseModel):
     )
     script: str = Field(..., description="可直接念出的前 3 秒钩子话术")
     target_persona: str = Field(default="", description="这套 Hook 主打的人群画像")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_plain_string(cls, data: Any) -> Any:  # noqa: ANN401
+        """兼容模型直接返回纯字符串（视为 script，风格留空）。"""
+        if isinstance(data, str):
+            return {"style": "", "script": data}
+        return data
 
 
 class ActionableInsight(BaseModel):

@@ -194,6 +194,28 @@ def test_risk_control_level_normalization_and_blocking() -> None:
     assert RiskControl().is_blocking is False
 
 
+def test_risk_control_coerces_loose_model_output() -> None:
+    """模型返回列表 / 字符串等不规范结构时应自动归一，不触发校验失败。"""
+    from hotspot_analysis.models import RiskControl
+
+    rc = RiskControl(
+        risk_level="High",
+        sensitive_words_found="最, 第一、国家级",
+        compliance_suggestions=["删除极限词", "补充免责声明"],
+    )
+    assert rc.sensitive_words_found == ["最", "第一", "国家级"]
+    assert rc.compliance_suggestions == "删除极限词；补充免责声明"
+
+
+def test_hook_option_accepts_plain_string() -> None:
+    """Hook 直接返回纯字符串时应视为 script，风格留空。"""
+    from hotspot_analysis.models import HookOption
+
+    opt = HookOption.model_validate("别急着买，先看完这条")
+    assert opt.script == "别急着买，先看完这条"
+    assert opt.style == ""
+
+
 def test_report_defaults_risk_control() -> None:
     report = TrendReport.model_validate(_valuable_fixture())
     # fixture 未显式给出 risk_control 时应回退为默认低风险
